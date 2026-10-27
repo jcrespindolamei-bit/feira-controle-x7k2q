@@ -169,8 +169,9 @@ footer{text-align:center;color:var(--suave);font-size:.72rem;margin-top:18px;pad
 <main id="lista"></main>
 <section class="bk"><div class="wrap">
   <h4>Segurança dos dados</h4>
-  <p>Tudo é salvo automaticamente neste aparelho. Por garantia, envie um resumo ou um backup de vez em quando.</p>
+  <p>Tudo é salvo automaticamente neste aparelho. Ao fim do evento, use "Exportar para Excel" e envie o arquivo. Por garantia, mande também o resumo de vez em quando.</p>
   <button class="bkb" id="bkZap" type="button">📤 Enviar resumo (WhatsApp / compartilhar)</button>
+  <button class="bkb" id="bkXlsx" type="button">📊 Exportar para Excel (.xlsx)</button>
   <button class="bkb" id="bkSalvar" type="button">💾 Salvar backup (arquivo)</button>
   <button class="bkb" id="bkRest" type="button">♻️ Restaurar backup</button>
   <input type="file" id="bkFile" accept=".json,application/json" hidden>
@@ -416,6 +417,68 @@ $('#bkFile').addEventListener('change',ev=>{
       if(confirm('Substituir os dados atuais pelo backup selecionado?')){ estado=Object.assign({dados:{},aberto:{},filtro:'todos'},o); salvar(); render(); }
     }catch(e){ alert('Arquivo de backup inválido.'); } };
   fr.readAsText(f); ev.target.value='';
+});
+
+
+/* =========================================================
+   EXPORTAR PARA EXCEL (.xlsx real, gerado aqui mesmo, sem internet)
+   ========================================================= */
+const crcT=(()=>{const t=[];for(let n=0;n<256;n++){let c=n;for(let k=0;k<8;k++)c=c&1?0xEDB88320^(c>>>1):c>>>1;t[n]=c>>>0}return t})();
+const crc32=u=>{let c=0xFFFFFFFF;for(let i=0;i<u.length;i++)c=crcT[(c^u[i])&255]^(c>>>8);return (c^0xFFFFFFFF)>>>0};
+function zipStore(files){                       // zip sem compressão (suficiente para .xlsx)
+  const enc=new TextEncoder(), parts=[], cen=[]; let off=0;
+  files.forEach(f=>{
+    const nm=enc.encode(f.name), d=enc.encode(f.data), crc=crc32(d);
+    const lh=new DataView(new ArrayBuffer(30)); lh.setUint32(0,0x04034b50,true); lh.setUint16(4,20,true); lh.setUint32(14,crc,true); lh.setUint32(18,d.length,true); lh.setUint32(22,d.length,true); lh.setUint16(26,nm.length,true);
+    parts.push(new Uint8Array(lh.buffer),nm,d);
+    const ch=new DataView(new ArrayBuffer(46)); ch.setUint32(0,0x02014b50,true); ch.setUint16(4,20,true); ch.setUint16(6,20,true); ch.setUint32(16,crc,true); ch.setUint32(20,d.length,true); ch.setUint32(24,d.length,true); ch.setUint16(28,nm.length,true); ch.setUint32(42,off,true);
+    cen.push(new Uint8Array(ch.buffer),nm); off+=30+nm.length+d.length;
+  });
+  const cs=cen.reduce((a,b)=>a+b.length,0), end=new DataView(new ArrayBuffer(22));
+  end.setUint32(0,0x06054b50,true); end.setUint16(8,files.length,true); end.setUint16(10,files.length,true); end.setUint32(12,cs,true); end.setUint32(16,off,true);
+  return new Blob([...parts,...cen,new Uint8Array(end.buffer)],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
+}
+const xesc=t=>String(t).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+const colL=i=>{let s='';i++;while(i>0){const m=(i-1)%26;s=String.fromCharCode(65+m)+s;i=Math.floor((i-1)/26)}return s};
+function montarXlsx(){
+  const cab=['Nome','Categoria','Dias planejados','Dias presente'];
+  DIAS.forEach(d=>cab.push(d.nome+' - Presente',d.nome+' - Enviado (R$)',d.nome+' - Retornado (R$)'));
+  cab.push('Total enviado (R$)','Total retornado (R$)','A reembolsar (R$)');
+  const linhas=[], n=PESSOAS.length, ult=3+n;     // dados nas linhas 2..n+1 (a linha 1 é o cabeçalho)
+  PESSOAS.forEach(p=>{
+    const t=totaisPessoa(p.id), r=[p.nome,p.cat==='aluno'?'Aluno':'Colaborador',p.dias,t.pres];
+    DIAS.forEach(d=>{const x=reg(p.id,d.k); r.push(x.p?'Sim':'Não',num(x.e),num(x.r));});
+    r.push(t.e,t.r,t.saldo); linhas.push(r);
+  });
+  const fim=n+1, tot=['TOTAL','','','']; for(let c=4;c<cab.length;c++) tot.push(null);
+  const cel=(v,r,c,st)=>{const ref=colL(c)+r;
+    if(v===null) return '';
+    if(typeof v==='number') return `<c r="${ref}" s="${st}"><v>${v}</v></c>`;
+    return `<c r="${ref}" s="${st}" t="inlineStr"><is><t>${xesc(v)}</t></is></c>`};
+  let rows='<row r="1" ht="34" customHeight="1">'+cab.map((h,c)=>cel(h,1,c,1)).join('')+'</row>';
+  linhas.forEach((l,i)=>{const r=i+2; rows+=`<row r="${r}">`+l.map((v,c)=>{const money=(typeof v==='number'&&c>=4&&(c-4)%3!==0)||(c>=cab.length-3);return cel(v,r,c,money?2:0)}).join('')+'</row>';});
+  const rt=fim+1; rows+=`<row r="${rt}">`+cel('TOTAL',rt,0,3)+cel('',rt,1,3)
+    +[2,3].map(c=>`<c r="${colL(c)}${rt}" s="3"><f>SUM(${colL(c)}2:${colL(c)}${fim})</f></c>`).join('')
+    +cab.map((h,c)=>c<4?'':((c-4)%3===0&&c<13?`<c r="${colL(c)}${rt}" s="3"><f>COUNTIF(${colL(c)}2:${colL(c)}${fim},"Sim")</f></c>`:`<c r="${colL(c)}${rt}" s="4"><f>SUM(${colL(c)}2:${colL(c)}${fim})</f></c>`)).join('')+'</row>';
+  const larg=[24,13,10,10,...DIAS.flatMap(()=>[11,14,14]),16,16,16].map((w,i)=>`<col min="${i+1}" max="${i+1}" width="${w}" customWidth="1"/>`).join('');
+  const sheet='<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetViews><sheetView workbookViewId="0"><pane xSplit="1" ySplit="1" topLeftCell="B2" activePane="bottomRight" state="frozen"/></sheetView></sheetViews><cols>'+larg+'</cols><sheetData>'+rows+'</sheetData></worksheet>';
+  const styles='<?xml version="1.0" encoding="UTF-8" standalone="yes"?><styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><numFmts count="1"><numFmt numFmtId="164" formatCode="&quot;R$&quot; #,##0.00"/></numFmts><fonts count="3"><font><sz val="11"/><name val="Arial"/></font><font><b/><sz val="10"/><color rgb="FFFFFFFF"/><name val="Arial"/></font><font><b/><sz val="11"/><name val="Arial"/></font></fonts><fills count="4"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill><fill><patternFill patternType="solid"><fgColor rgb="FF0A2240"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="FFE8EDF5"/></patternFill></fill></fills><borders count="1"><border/></borders><cellStyleXfs count="1"><xf/></cellStyleXfs><cellXfs count="5"><xf/><xf fontId="1" fillId="2" applyFont="1" applyFill="1" applyAlignment="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf><xf numFmtId="164" applyNumberFormat="1"/><xf fontId="2" fillId="3" applyFont="1" applyFill="1"/><xf numFmtId="164" fontId="2" fillId="3" applyNumberFormat="1" applyFont="1" applyFill="1"/></cellXfs></styleSheet>';
+  return zipStore([
+    {name:'[Content_Types].xml',data:'<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/></Types>'},
+    {name:'_rels/.rels',data:'<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>'},
+    {name:'xl/workbook.xml',data:'<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="Reembolsos" sheetId="1" r:id="rId1"/></sheets></workbook>'},
+    {name:'xl/_rels/workbook.xml.rels',data:'<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>'},
+    {name:'xl/styles.xml',data:styles},
+    {name:'xl/worksheets/sheet1.xml',data:sheet}
+  ]);
+}
+$('#bkXlsx').addEventListener('click',async()=>{
+  const blob=montarXlsx(), nome='reembolsos-feira-'+new Date().toISOString().slice(0,10)+'.xlsx';
+  try{
+    const f=new File([blob],nome,{type:blob.type});
+    if(navigator.canShare && navigator.canShare({files:[f]})){ await navigator.share({files:[f],title:'Reembolsos da feira'}); return; }   // celular: abre o compartilhar (WhatsApp, e-mail, Arquivos)
+  }catch(e){ if(e && e.name==='AbortError') return; }
+  const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=nome; document.body.appendChild(a); a.click(); a.remove();
 });
 
 /* =========================================================
