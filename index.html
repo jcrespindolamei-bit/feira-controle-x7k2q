@@ -202,6 +202,7 @@ const PESSOAS = [
   {id:'a13',nome:'Vítor Eberle',cat:'aluno',dias:2},
   {id:'a14',nome:'Milena Packer',cat:'aluno',dias:1}
 ];
+PESSOAS.sort((a,b)=>a.nome.localeCompare(b.nome,'pt-BR',{sensitivity:'base'}));   // ordem alfabética
 const DIAS = [{k:'ter',nome:'Terça'},{k:'qua',nome:'Quarta'},{k:'qui',nome:'Quinta'}];
 const CHAVE = 'feira_pucrs_v1';
 
@@ -242,6 +243,8 @@ function reg(id,d){
    ========================================================= */
 const brl = v => (v<0?'-':'')+'R$ '+Math.abs(v).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});
 const num = v => { const n = parseFloat(String(v).replace(',','.')); return isFinite(n)?n:0; };
+/* aceita só dígitos e UM separador decimal (vírgula ou ponto) enquanto digita */
+const limpaValor = t => { t=String(t).replace(/[^0-9.,]/g,''); const i=t.search(/[.,]/); return i<0 ? t : t.slice(0,i+1)+t.slice(i+1).replace(/[.,]/g,''); };
 const iniciais = n => n.split(' ').filter(Boolean).slice(0,2).map(s=>s[0]).join('').toUpperCase();
 const $ = s => document.querySelector(s);
 
@@ -293,8 +296,8 @@ function cardHTML(p){
       <div class="dtit"><h3>${d.nome}</h3>
         <label class="chk"><input type="checkbox" data-campo="p" data-dia="${d.k}" ${x.p?'checked':''}>Presente</label></div>
       <div class="vals">
-        <div><label>Valor enviado</label><div class="money"><span>R$</span><input type="number" inputmode="decimal" step="0.01" min="0" placeholder="0,00" data-campo="e" data-dia="${d.k}" value="${x.e}"></div></div>
-        <div><label>Valor retornado</label><div class="money"><span>R$</span><input type="number" inputmode="decimal" step="0.01" min="0" placeholder="0,00" data-campo="r" data-dia="${d.k}" value="${x.r}"></div></div>
+        <div><label>Valor enviado</label><div class="money"><span>R$</span><input type="text" inputmode="decimal" autocomplete="off" enterkeyhint="done" placeholder="0,00" data-campo="e" data-dia="${d.k}" value="${x.e}"></div></div>
+        <div><label>Valor retornado</label><div class="money"><span>R$</span><input type="text" inputmode="decimal" autocomplete="off" enterkeyhint="done" placeholder="0,00" data-campo="r" data-dia="${d.k}" value="${x.r}"></div></div>
       </div>
       <div class="dsaldo">Saldo do dia: <b>${brl(num(x.e)-num(x.r))}</b></div>
     </div>`;
@@ -333,7 +336,8 @@ $('#lista').addEventListener('click', ev=>{
 function aoMudar(ev){
   const el = ev.target; if(!el.dataset || !el.dataset.campo) return;
   const id = el.closest('.pessoa').dataset.id, x = reg(id,el.dataset.dia);
-  if(el.dataset.campo==='p') x.p = el.checked; else x[el.dataset.campo] = el.value;
+  if(el.dataset.campo==='p') x.p = el.checked;
+  else { const v = limpaValor(el.value); if(v!==el.value) el.value = v; x[el.dataset.campo] = v; }
   salvar(); atualizarPessoa(id); atualizarDashboard();       // salva e recalcula em tempo real
 }
 $('#lista').addEventListener('input', aoMudar);
