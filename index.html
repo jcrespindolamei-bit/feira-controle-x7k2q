@@ -43,7 +43,7 @@ header{background:var(--azul);color:#fff;padding:calc(10px + env(safe-area-inset
 .rec .wrap{background:var(--card);border:1px solid var(--borda);border-left:6px solid var(--dourado2);border-radius:var(--r);padding:12px 14px}
 .rec h4{margin:0 0 2px;font-size:.8rem;text-transform:uppercase;letter-spacing:.7px;color:var(--azul)}
 .rec p{margin:0 0 10px;font-size:.76rem;color:var(--suave)}
-.rgrid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.rgrid{display:grid;grid-template-columns:1fr;gap:8px}
 .rgrid label{display:block;font-size:.66rem;text-transform:uppercase;letter-spacing:.4px;color:var(--suave);font-weight:700}
 .conta{margin-top:10px;border-top:1px dashed var(--borda);padding-top:8px;font-size:.84rem}
 .conta div{display:flex;justify-content:space-between;gap:8px;padding:2px 0}
@@ -97,6 +97,8 @@ main{padding:0 12px}
 .money input{width:100%;min-width:0;border:0;outline:0;background:transparent;padding:12px 10px 12px 6px;font:500 1rem Roboto,Arial,sans-serif;color:var(--texto)}
 .dsaldo{margin-top:8px;font-size:.78rem;color:var(--suave);text-align:right}
 .dsaldo b{color:var(--azul)}
+.fechar{display:block;width:100%;min-height:44px;margin-top:10px;border-radius:12px;border:2px dashed var(--borda);background:#fff;color:var(--suave);font:700 .8rem Roboto,Arial,sans-serif;cursor:pointer}
+.fechar.dest{border-color:var(--dourado2);color:var(--azul);background:#fbf8f2}
 .ptotal{margin-top:12px;display:grid;grid-template-columns:repeat(3,1fr);gap:8px;background:var(--azul);color:#fff;border-radius:12px;padding:12px 14px;border-bottom:3px solid var(--dourado2)}
 .ptotal small{display:block;font-size:.62rem;text-transform:uppercase;letter-spacing:.4px;color:#c9d3e3;font-weight:700}
 .ptotal b{font-size:.98rem}
@@ -160,7 +162,7 @@ footer{text-align:center;color:var(--suave);font-size:.72rem;margin-top:18px;pad
 <!-- ===== Recebido da PUC (um Pix por dia trabalhado) ===== -->
 <section class="rec"><div class="wrap">
   <h4>Recebido da PUC</h4>
-  <p>Digite o valor do Pix recebido em cada dia.</p>
+  <p>Valor total recebido da PUC no início (vale para todos os dias).</p>
   <div class="rgrid" id="rgrid"></div>
   <div class="conta" id="conta"></div>
 </div></section>
@@ -219,7 +221,8 @@ const PESSOAS = [
   {id:'a11',nome:'Luis Eduardo Klein',cat:'aluno',dias:1},
   {id:'a12',nome:'Felipe Saenger',cat:'aluno',dias:1},
   {id:'a13',nome:'Vítor Eberle',cat:'aluno',dias:2},
-  {id:'a14',nome:'Milena Packer',cat:'aluno',dias:1}
+  {id:'a14',nome:'Milena Packer',cat:'aluno',dias:1},
+  {id:'a15',nome:'Vinicius Chrisosthemos',cat:'aluno',dias:1}
 ];
 PESSOAS.sort((a,b)=>a.nome.localeCompare(b.nome,'pt-BR',{sensitivity:'base'}));   // ordem alfabética
 const DIAS = [{k:'ter',nome:'Terça'},{k:'qua',nome:'Quarta'},{k:'qui',nome:'Quinta'}];
@@ -230,14 +233,19 @@ const CHAVE = 'feira_pucrs_v1';
    estado = { dados:{ id:{ ter:{s:''|'p'|'n', r:'texto'} ... } }, rec:{ter,qua,qui}, aberto:{}, filtro, painel }
    s: ''=pendente, 'p'=presente (envia VALOR_DIA), 'n'=não presente
    ========================================================= */
-let estado = {dados:{},rec:{ter:'',qua:'',qui:''},aberto:{},filtro:'todos'};
+let estado = {dados:{},recebido:'',aberto:{},filtro:'todos'};
 let salvaOk = true;
 function migrar(){                                  // compatível com versões anteriores
   Object.values(estado.dados).forEach(p=>Object.values(p).forEach(x=>{
     if(x.s===undefined) x.s = x.p ? 'p' : '';
     delete x.p; delete x.e;
   }));
-  estado.rec = Object.assign({ter:'',qua:'',qui:''}, estado.rec||{});
+  if(estado.rec){                                   // versão anterior: valores por dia -> um único valor
+    const soma = Object.values(estado.rec).reduce((a,v)=>{const n=parseFloat(String(v).replace(',','.'));return a+(isFinite(n)?n:0)},0);
+    if(!estado.recebido && soma>0) estado.recebido = String(soma).replace('.',',');
+    delete estado.rec;
+  }
+  if(typeof estado.recebido!=='string') estado.recebido='';
 }
 function carregar(){
   try{ const s = localStorage.getItem(CHAVE); if(s){ const o = JSON.parse(s); if(o && o.dados) estado = Object.assign(estado,o); } }
@@ -286,13 +294,13 @@ function totaisPessoa(id){
   const p = PESSOAS.find(q=>q.id===id);
   let e=0,r=0,pres=0,aus=0;
   DIAS.forEach(d=>{ const i=infoDia(id,d.k); e+=i.env; r+=i.ret; if(i.s==='p')pres++; else if(i.s==='n')aus++; });
-  return {e,r,gasto:e-r,pres,aus,marcados:pres+aus,concl:(pres+aus)>=p.dias};
+  return {e,r,gasto:e-r,pres,aus,marcados:pres+aus,pend:DIAS.length-(pres+aus),concl:(pres+aus)===DIAS.length};
 }
-function recebido(k){ return num(estado.rec[k]); }
+function recebidoTotal(){ return num(estado.recebido); }
 function geral(){
   let E=0,R=0,al=0,co=0,conc=0;
   PESSOAS.forEach(p=>{ const t=totaisPessoa(p.id); E+=t.e; R+=t.r; if(t.pres>0){p.cat==='aluno'?al++:co++;} if(t.concl)conc++; });
-  const rec = DIAS.reduce((a,d)=>a+recebido(d.k),0), G=E-R;
+  const rec = recebidoTotal(), G=E-R;
   return {E,R,G,rec,est:rec-G,al,co,conc};
 }
 function atualizarDashboard(){
@@ -313,7 +321,7 @@ function atualizarPessoa(id){
   const t = totaisPessoa(id), p = PESSOAS.find(x=>x.id===id);
   card.querySelector('.psaldo b').textContent = brl(t.gasto);
   const tg = card.querySelectorAll('.ptotal b'); tg[0].textContent=brl(t.e); tg[1].textContent=brl(t.r); tg[2].textContent=brl(t.gasto);
-  const st = card.querySelector('.tag.st'); st.textContent = t.concl ? '✓ Concluído' : 'Pendente '+t.marcados+'/'+p.dias; st.className='tag st '+(t.concl?'ok':'pend');
+  const st = card.querySelector('.tag.st'); st.textContent = t.concl ? '✓ Concluído' : 'Pendente '+t.marcados+'/'+DIAS.length; st.className='tag st '+(t.concl?'ok':'pend');
   DIAS.forEach(d=>{ const el=card.querySelector('[data-dia="'+d.k+'"] .dsaldo b'); if(el) el.textContent=brl(infoDia(id,d.k).gasto); });
 }
 
@@ -338,10 +346,10 @@ function cardHTML(p){
       '<div class="av">'+iniciais(p.nome)+'</div>'+
       '<div class="pinfo"><b>'+p.nome+'</b><div class="tags"><span class="tag cat">'+(p.cat==='aluno'?'Aluno':'Colaborador')+'</span>'+
         '<span class="tag">'+p.dias+' '+(p.dias>1?'dias planejados':'dia planejado')+'</span>'+
-        '<span class="tag st '+(t.concl?'ok':'pend')+'">'+(t.concl?'✓ Concluído':'Pendente '+t.marcados+'/'+p.dias)+'</span></div></div>'+
+        '<span class="tag st '+(t.concl?'ok':'pend')+'">'+(t.concl?'✓ Concluído':'Pendente '+t.marcados+'/'+DIAS.length)+'</span></div></div>'+
       '<div class="psaldo"><small>Total gasto</small><b>'+brl(t.gasto)+'</b></div><span class="chev">▾</span>'+
     '</button>'+
-    '<div class="pb"><div class="dias-grid">'+DIAS.map(d=>diaHTML(p,d)).join('')+'</div>'+
+    '<div class="pb"><div class="dias-grid">'+DIAS.map(d=>diaHTML(p,d)).join('')+'</div>'+(t.pend>0?'<button type="button" class="fechar'+(t.pres>=p.dias?' dest':'')+'" data-fechar="1">Marcar '+(t.pend>1?'os '+t.pend+' dias restantes':'o dia restante')+' como não presente</button>':'')+
       '<div class="ptotal"><div><small>Enviado</small><b>'+brl(t.e)+'</b></div><div><small>Retornado</small><b>'+brl(t.r)+'</b></div><div><small>Total gasto</small><b>'+brl(t.gasto)+'</b></div></div></div>'+
   '</article>';
 }
@@ -353,7 +361,7 @@ function render(){
   atualizarDashboard();
 }
 function renderRec(){
-  $('#rgrid').innerHTML = DIAS.map(d=>'<div><label>'+d.nome+'</label><div class="money"><span>R$</span><input type="text" inputmode="decimal" autocomplete="off" enterkeyhint="done" placeholder="0,00" data-rec="'+d.k+'" value="'+estado.rec[d.k]+'"></div></div>').join('');
+  $('#rgrid').innerHTML = '<div><label>Valor recebido da PUC</label><div class="money"><span>R$</span><input type="text" inputmode="decimal" autocomplete="off" enterkeyhint="done" placeholder="0,00" data-rec="1" value="'+estado.recebido+'"></div></div>';
 }
 function recarregarCard(id){
   const old = document.querySelector('[data-id="'+id+'"]'); if(!old) return;
@@ -366,14 +374,15 @@ function recarregarCard(id){
    ========================================================= */
 function painel(g){
   const dia={}, cat={aluno:{e:0,r:0},colab:{e:0,r:0}}, pend=[], alertas=[]; let pres=0,aus=0;
-  DIAS.forEach(d=>dia[d.k]={n:d.nome,p:0,e:0,r:0,rec:recebido(d.k)});
+  DIAS.forEach(d=>dia[d.k]={n:d.nome,p:0,e:0,r:0});
   PESSOAS.forEach(p=>{
     const t=totaisPessoa(p.id); cat[p.cat].e+=t.e; cat[p.cat].r+=t.r; pres+=t.pres; aus+=t.aus;
-    if(!t.concl) pend.push({n:p.nome,m:t.marcados,d:p.dias});
+    if(!t.concl) pend.push({n:p.nome,m:t.marcados,d:DIAS.length});
+    if(t.pres>p.dias) alertas.push({t:'w',m:'<b>'+p.nome+'</b>: '+t.pres+' dias de presença, mas só '+p.dias+' planejado(s).'});
     DIAS.forEach(d=>{ const i=infoDia(p.id,d.k); dia[d.k].e+=i.env; dia[d.k].r+=i.ret; if(i.s==='p')dia[d.k].p++;
       if(i.ret>VALOR_DIA+0.004) alertas.push({t:'e',m:'<b>'+p.nome+'</b>: retornou '+brl(i.ret)+' na '+d.nome+', mais do que os '+brl(VALOR_DIA)+' enviados.'}); });
   });
-  DIAS.forEach(d=>{ const x=dia[d.k]; if(x.p>0 && x.rec===0) alertas.push({t:'w',m:'<b>'+x.n+'</b>: há '+x.p+' presença(s), mas nenhum valor recebido da PUC foi informado.'}); });
+  if(pres>0 && g.rec===0) alertas.push({t:'w',m:'Há presenças marcadas, mas o valor recebido da PUC ainda não foi informado.'});
   if(g.est<-0.004) alertas.push({t:'w',m:'O gasto ('+brl(g.G)+') está maior do que o recebido da PUC ('+brl(g.rec)+').'});
   const pctRet = g.E>0 ? g.R/g.E*100 : 0, med = pres>0 ? g.G/pres : 0;
   const maxE = Math.max(1,...Object.values(dia).map(d=>d.e));
@@ -383,7 +392,7 @@ function painel(g){
    +'<div><small>Presenças</small><b>'+pres+' presentes · '+aus+' ausentes</b></div>'
    +'<div><small>Concluídos</small><b>'+g.conc+' de '+PESSOAS.length+'</b><div class="bar d"><i style="width:'+(g.conc/PESSOAS.length*100)+'%"></i></div></div></div>'
    +'<div class="cols"><div><h4>Comparativo por dia</h4>';
-  DIAS.forEach(d=>{const x=dia[d.k];h+='<div class="drow"><div class="t"><span>'+x.n+'</span><b>'+brl(x.e)+' enviado</b></div><div class="bar"><i style="width:'+(x.e/maxE*100)+'%"></i></div><div class="st">'+x.p+' presente(s) · retornado '+brl(x.r)+' · gasto '+brl(x.e-x.r)+' · recebido da PUC '+brl(x.rec)+'</div></div>'});
+  DIAS.forEach(d=>{const x=dia[d.k];h+='<div class="drow"><div class="t"><span>'+x.n+'</span><b>'+brl(x.e)+' enviado</b></div><div class="bar"><i style="width:'+(x.e/maxE*100)+'%"></i></div><div class="st">'+x.p+' presente(s) · retornado '+brl(x.r)+' · gasto '+brl(x.e-x.r)+'</div></div>'});
   h+='<h4>Alunos x Colaboradores</h4>'
    +'<div class="rk"><span>Alunos</span><b>'+brl(cat.aluno.e)+' enviado<br>'+brl(cat.aluno.e-cat.aluno.r)+' gasto</b></div>'
    +'<div class="rk"><span>Colaboradores</span><b>'+brl(cat.colab.e)+' enviado<br>'+brl(cat.colab.e-cat.colab.r)+' gasto</b></div></div>'
@@ -402,6 +411,12 @@ $('#iaBtn').addEventListener('click',()=>{const el=$('#ia');el.classList.toggle(
    EVENTOS
    ========================================================= */
 $('#lista').addEventListener('click', ev=>{
+  const fb = ev.target.closest('.fechar');
+  if(fb){                                                  // conclui a pessoa: dias sem marcação viram "não presente"
+    const id = fb.closest('.pessoa').dataset.id;
+    DIAS.forEach(d=>{ const x=reg(id,d.k); if(x.s==='') x.s='n'; });
+    salvar(); recarregarCard(id); atualizarDashboard(); return;
+  }
   const sb = ev.target.closest('.seg button');
   if(sb){                                                  // marcar Presente / Não presente (toque de novo desmarca)
     const card = sb.closest('.pessoa'), id = card.dataset.id, dk = sb.closest('.dia').dataset.dia, x = reg(id,dk);
@@ -422,7 +437,7 @@ $('#lista').addEventListener('input', ev=>{
 $('#rgrid').addEventListener('input', ev=>{
   const el = ev.target; if(!el.dataset.rec) return;
   const v = limpaValor(el.value); if(v!==el.value) el.value = v;
-  estado.rec[el.dataset.rec] = v; salvar(); atualizarDashboard();
+  estado.recebido = v; salvar(); atualizarDashboard();
 });
 document.querySelectorAll('.fbtn').forEach(b=>b.addEventListener('click',()=>{ estado.filtro=b.dataset.f; salvar(); render(); }));
 
@@ -452,7 +467,7 @@ $('#bkFile').addEventListener('change',ev=>{
   const fr=new FileReader();
   fr.onload=()=>{ try{ const o=JSON.parse(fr.result);
       if(!o||!o.dados) throw 0;
-      if(confirm('Substituir os dados atuais pelo backup selecionado?')){ estado=Object.assign({dados:{},rec:{},aberto:{},filtro:'todos'},o); migrar(); salvar(); renderRec(); render(); }
+      if(confirm('Substituir os dados atuais pelo backup selecionado?')){ estado=Object.assign({dados:{},recebido:'',aberto:{},filtro:'todos'},o); migrar(); salvar(); renderRec(); render(); }
     }catch(e){ alert('Arquivo de backup inválido.'); } };
   fr.readAsText(f); ev.target.value='';
 });
@@ -503,9 +518,7 @@ function montarXlsx(){
   // resumo financeiro
   let r=rt+2; const rr=[]; const lin=(lab,val,st)=>{rr.push(`<row r="${r}">`+cel(lab,r,0,st===2?3:3)+cel(val,r,4,st)+'</row>'); r++;};
   rr.push(`<row r="${r}">`+cel('RESUMO FINANCEIRO',r,0,3)+'</row>'); r++;
-  const rec0=r;
-  DIAS.forEach(d=>lin('Recebido da PUC - '+d.nome,recebido(d.k),2));
-  const totRec=r; lin('Total recebido da PUC',{f:`SUM(E${rec0}:E${r-1})`,s:4},4);
+  const totRec=r; lin('Recebido da PUC (valor inicial)',recebidoTotal(),4);
   const l1=r; lin('Total enviado',{f:`O${rt}`,s:4},4);
   const l2=r; lin('Total retornado',{f:`P${rt}`,s:4},4);
   const l3=r; lin('Total gasto (enviado - retornado)',{f:`E${l1}-E${l2}`,s:4},4);
